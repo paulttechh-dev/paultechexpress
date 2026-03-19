@@ -1,0 +1,5 @@
+{
+  "name": "PAULTECH EXPRESS",
+  "description": "Busca e entrega de celulares para assistência técnica rápida e segura.",
+  "requestFramePermissions": ["geolocation"]
+}

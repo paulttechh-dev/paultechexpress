@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: userId (auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - name: string (required)
+    //   - role: string (required, enum: ['client', 'motoboy', 'admin'])
+    //   - createdAt: timestamp (optional)
+    //
+    // Collection: orders
+    // Document ID: orderId (auto-generated)
+    // Fields:
+    //   - clientId: string (required)
+    //   - clientName: string (required)
+    //   - motoboyId: string (optional)
+    //   - motoboyName: string (optional)
+    //   - address: string (required)
+    //   - problem: string (required)
+    //   - status: string (required, enum: ['waiting', 'accepted', 'on_route', 'collected', 'in_maintenance', 'delivered', 'cancelled'])
+    //   - createdAt: timestamp (required)
+    //   - updatedAt: timestamp (optional)
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "paulttechh@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isMotoboy() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'motoboy';
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && data.email.size() > 0 &&
+             data.name is string && data.name.size() > 0 &&
+             data.role in ['client', 'motoboy', 'admin'];
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['clientId', 'clientName', 'address', 'problem', 'status', 'createdAt']) &&
+             data.clientId is string && data.clientName is string &&
+             data.address is string && data.address.size() > 0 && data.address.size() < 500 &&
+             data.problem is string && data.problem.size() > 0 && data.problem.size() < 1000 &&
+             data.status in ['waiting', 'accepted', 'on_route', 'collected', 'in_maintenance', 'delivered', 'cancelled'];
+    }
+
+    // Rules for 'users' collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      
+      // Clients can create their own profile as 'client'
+      // Admins can create any profile
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == 'client') || isAdmin()
+      );
+      
+      // Users can update their own profile (but not their role unless admin)
+      // Admins can update anything
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin()
+      );
+      
+      allow delete: if isAdmin();
+    }
+
+    // Rules for 'orders' collection
+    match /orders/{orderId} {
+      allow read: if isAuthenticated();
+      
+      // Clients can create orders
+      allow create: if isAuthenticated() && isValidOrder(request.resource.data) && (
+        request.resource.data.clientId == request.auth.uid || isAdmin()
+      );
+      
+      // Update rules:
+      // 1. Client can update their own order (if status is waiting)
+      // 2. Motoboy can update status if they are assigned or if it's waiting (to accept)
+      // 3. Admin can update anything
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (resource.data.clientId == request.auth.uid && resource.data.status == 'waiting') ||
+        (isMotoboy() && (resource.data.status == 'waiting' || resource.data.motoboyId == request.auth.uid))
+      );
+      
+      allow delete: if isAdmin();
+    }
+  }
+}
