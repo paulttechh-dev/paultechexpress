@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabase';
 import { useAuth } from '../AuthContext';
 import { Order, OrderStatus } from '../types';
 import { motion } from 'motion/react';
@@ -33,37 +32,54 @@ export function MotoboyDashboard() {
   const [availableOrders, setAvailableOrders] = useState<Order[]>([]);
   const [myOrders, setMyOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [tab, setTab] = useState<'active' | 'history'>('active');
+
+  const fetchOrders = async (isManual = false) => {
+    if (!user) return;
+    if (isManual) setRefreshing(true);
+
+    try {
+      // Available orders (waiting)
+      const { data: availableData } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: false });
+
+      // My orders (all)
+      const { data: myData } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('motoboy_id', user.id)
+        .order('updated_at', { ascending: false });
+
+      if (availableData) setAvailableOrders(availableData as Order[]);
+      if (myData) setMyOrders(myData as Order[]);
+    } catch (error) {
+      console.error("Erro ao buscar pedidos:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
+    fetchOrders();
 
-    // Available orders (waiting)
-    const qAvailable = query(
-      collection(db, 'orders'),
-      where('status', '==', 'waiting'),
-      orderBy('createdAt', 'desc')
-    );
-
-    // My active orders
-    const qMy = query(
-      collection(db, 'orders'),
-      where('motoboyId', '==', user.uid),
-      orderBy('updatedAt', 'desc')
-    );
-
-    const unsubAvailable = onSnapshot(qAvailable, (snapshot) => {
-      setAvailableOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Order[]);
-      setLoading(false);
-    });
-
-    const unsubMy = onSnapshot(qMy, (snapshot) => {
-      setMyOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Order[]);
-    });
+    const ordersSubscription = supabase
+      .channel('motoboy-orders-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => fetchOrders()
+      )
+      .subscribe();
 
     return () => {
-      unsubAvailable();
-      unsubMy();
+      supabase.removeChannel(ordersSubscription);
     };
   }, [user]);
 
@@ -77,15 +93,21 @@ export function MotoboyDashboard() {
     try {
       const updateData: any = {
         status: nextStatus,
-        updatedAt: serverTimestamp(),
+        updated_at: new Date().toISOString(),
       };
 
       if (order.status === 'waiting') {
-        updateData.motoboyId = user.uid;
-        updateData.motoboyName = profile.name;
+        updateData.motoboy_id = user.id;
+        updateData.motoboy_name = profile.name;
       }
 
-      await updateDoc(doc(db, 'orders', order.id), updateData);
+      const { error } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', order.id);
+
+      if (error) throw error;
+      fetchOrders();
     } catch (error) {
       console.error("Error updating order:", error);
       alert("Erro ao atualizar pedido.");
@@ -94,125 +116,221 @@ export function MotoboyDashboard() {
     }
   };
 
+  const activeMyOrders = myOrders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled');
+  const historyOrders = myOrders.filter(o => o.status === 'delivered' || o.status === 'cancelled');
+
   return (
-    <div className="space-y-12">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight">PAINEL DO MOTOBOY</h1>
-          <p className="text-slate-400">Olá, {profile?.name}. Gerencie suas entregas.</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-black tracking-tight uppercase">PAINEL DO MOTOBOY</h1>
+            <button 
+              onClick={() => fetchOrders(true)}
+              className={`p-2 rounded-full hover:bg-white/5 text-slate-500 transition-all ${refreshing ? 'animate-spin text-blue-500' : ''}`}
+            >
+              <Truck className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-slate-400">Olá, {profile?.name}. Gerencie suas coletas e entregas em tempo real.</p>
+        </div>
+
+        <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-white/5 self-start">
+          <button
+            onClick={() => setTab('active')}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${tab === 'active' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:text-white'}`}
+          >
+            <Truck className="w-4 h-4" />
+            Ativas
+          </button>
+          <button
+            onClick={() => setTab('history')}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${tab === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:text-white'}`}
+          >
+            <Clock className="w-4 h-4" />
+            Histórico
+          </button>
         </div>
       </div>
 
-      {/* Active Orders */}
-      <section className="space-y-6">
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Truck className="w-6 h-6 text-blue-400" />
-          Minhas Corridas Ativas
-        </h2>
-        
-        {myOrders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length === 0 ? (
-          <div className="p-8 rounded-3xl bg-slate-900/30 border border-white/5 text-center text-slate-500">
-            Nenhuma corrida ativa no momento.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {myOrders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').map((order) => (
-              <div key={order.id}>
-                <OrderCard 
-                  order={order} 
-                  onUpdate={() => updateStatus(order)} 
-                  isUpdating={updatingId === order.id}
-                />
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+          <p className="text-slate-500 animate-pulse font-bold uppercase tracking-widest">Sincronizando...</p>
+        </div>
+      ) : tab === 'active' ? (
+        <div className="space-y-12">
+          {/* My Active Orders */}
+          <section className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-black flex items-center gap-2 uppercase tracking-tight">
+                <div className="w-2 h-8 bg-blue-600 rounded-full" />
+                Minhas Corridas
+                <span className="ml-2 px-2 py-0.5 rounded-lg bg-blue-600/20 text-blue-400 text-xs">{activeMyOrders.length}</span>
+              </h2>
+            </div>
+            
+            {activeMyOrders.length === 0 ? (
+              <div className="p-12 rounded-[32px] bg-slate-900/30 border border-dashed border-white/10 text-center space-y-3">
+                <Truck className="w-10 h-10 text-slate-700 mx-auto" />
+                <p className="text-slate-500 font-medium">Você não tem nenhuma corrida em andamento.</p>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {activeMyOrders.map((order) => (
+                  <OrderCard 
+                    key={order.id}
+                    order={order} 
+                    onUpdate={() => updateStatus(order)} 
+                    isUpdating={updatingId === order.id}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
 
-      {/* Available Orders */}
-      <section className="space-y-6">
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <PackageCheck className="w-6 h-6 text-cyan-400" />
-          Pedidos Disponíveis
-        </h2>
-        
-        {availableOrders.length === 0 ? (
-          <div className="p-8 rounded-3xl bg-slate-900/30 border border-white/5 text-center text-slate-500">
-            Nenhum pedido aguardando coleta.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {availableOrders.map((order) => (
-              <div key={order.id}>
-                <OrderCard 
-                  order={order} 
-                  onUpdate={() => updateStatus(order)} 
-                  isUpdating={updatingId === order.id}
-                />
+          {/* Available Orders */}
+          <section className="space-y-6">
+            <h2 className="text-xl font-black flex items-center gap-2 uppercase tracking-tight">
+              <div className="w-2 h-8 bg-cyan-500 rounded-full" />
+              Pedidos Disponíveis
+              <span className="ml-2 px-2 py-0.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs">{availableOrders.length}</span>
+            </h2>
+            
+            {availableOrders.length === 0 ? (
+              <div className="p-12 rounded-[32px] bg-slate-900/30 border border-dashed border-white/10 text-center space-y-3">
+                <PackageCheck className="w-10 h-10 text-slate-700 mx-auto" />
+                <p className="text-slate-500 font-medium">Nenhum pedido aguardando coleta no momento.</p>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {availableOrders.map((order) => (
+                  <OrderCard 
+                    key={order.id}
+                    order={order} 
+                    onUpdate={() => updateStatus(order)} 
+                    isUpdating={updatingId === order.id}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <section className="space-y-6">
+          <h2 className="text-xl font-black flex items-center gap-2 uppercase tracking-tight">
+            <div className="w-2 h-8 bg-slate-600 rounded-full" />
+            Histórico de Entregas
+          </h2>
+          {historyOrders.length === 0 ? (
+            <div className="p-12 rounded-[32px] bg-slate-900/30 border border-dashed border-white/10 text-center">
+              <p className="text-slate-500">Nenhum histórico encontrado.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {historyOrders.map((order) => (
+                <OrderCard 
+                  key={order.id}
+                  order={order} 
+                  onUpdate={() => {}} 
+                  isUpdating={false}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
 
 function OrderCard({ order, onUpdate, isUpdating }: { order: Order, onUpdate: () => void | Promise<void>, isUpdating: boolean }) {
   const btn = STATUS_BUTTONS[order.status];
+  const isHistory = order.status === 'delivered' || order.status === 'cancelled';
+
+  const openInMaps = () => {
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`;
+    window.open(url, '_blank');
+  };
   
   return (
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-slate-900/50 border border-white/10 rounded-3xl p-6 space-y-6 hover:border-blue-500/30 transition-all group"
+      className="bg-slate-900/50 border border-white/10 rounded-[32px] p-6 space-y-6 hover:border-blue-500/30 transition-all group relative overflow-hidden"
     >
+      <div className="absolute top-0 left-0 w-1 h-full bg-blue-600/20 group-hover:bg-blue-600 transition-colors" />
+      
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-white/5 group-hover:bg-blue-500/10 transition-colors">
-            <Smartphone className="w-5 h-5 text-blue-400" />
+          <div className="p-3 rounded-2xl bg-white/5 group-hover:bg-blue-500/10 transition-colors">
+            <Smartphone className={`w-6 h-6 ${order.problem.startsWith('COMPRA:') ? 'text-emerald-400' : 'text-blue-400'}`} />
           </div>
           <div>
-            <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Cliente</p>
-            <p className="text-slate-200 font-bold">{order.clientName}</p>
+            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Cliente</p>
+            <p className="text-slate-200 font-bold text-lg">{order.client_name}</p>
           </div>
         </div>
         <div className="text-right">
-          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Status Atual</p>
-          <p className="text-cyan-400 text-xs font-bold uppercase">{order.status.replace('_', ' ')}</p>
+          <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Status</p>
+          <p className="text-cyan-400 text-xs font-black uppercase tracking-tighter">{order.status.replace('_', ' ')}</p>
         </div>
       </div>
 
-      <div className="space-y-3 bg-slate-950/50 p-4 rounded-2xl border border-white/5">
-        <div className="flex items-start gap-3">
-          <MapPin className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-slate-300">{order.address}</p>
-        </div>
-        <div className="flex items-start gap-3">
-          <Clock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-          <p className="text-xs text-slate-400">
-            {order.createdAt?.seconds 
-              ? format(new Date(order.createdAt.seconds * 1000), "dd/MM HH:mm", { locale: ptBR })
-              : 'Agora'}
+      <div className="space-y-4 bg-slate-950/50 p-5 rounded-[24px] border border-white/5">
+        <div className="space-y-1">
+          <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-1">
+            <Smartphone className="w-3 h-3" /> Descrição / Problema
           </p>
+          <p className="text-sm text-slate-300 font-medium line-clamp-2">{order.problem}</p>
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-1">
+            <MapPin className="w-3 h-3" /> Endereço de Entrega/Coleta
+          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm text-slate-300 leading-tight flex-1">{order.address}</p>
+            <button 
+              onClick={openInMaps}
+              className="p-2 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 transition-colors"
+              title="Ver no Mapa"
+            >
+              <Navigation className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-white/5">
+          <div className="flex items-center gap-2">
+            <Clock className="w-3 h-3 text-slate-500" />
+            <p className="text-[10px] text-slate-500 font-bold">
+              {order.created_at 
+                ? format(new Date(order.created_at), "dd/MM HH:mm", { locale: ptBR })
+                : 'Agora'}
+            </p>
+          </div>
+          <p className="text-[10px] text-slate-600 font-mono">#{order.id.slice(-6).toUpperCase()}</p>
         </div>
       </div>
 
-      <button
-        onClick={onUpdate}
-        disabled={isUpdating || !STATUS_FLOW[order.status]}
-        className={`w-full py-4 rounded-2xl text-white font-bold flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:active:scale-100 ${btn.color}`}
-      >
-        {isUpdating ? (
-          <Loader2 className="w-5 h-5 animate-spin" />
-        ) : (
-          <>
-            {btn.icon}
-            {btn.label}
-          </>
-        )}
-      </button>
+      {!isHistory && (
+        <button
+          onClick={onUpdate}
+          disabled={isUpdating || !STATUS_FLOW[order.status]}
+          className={`w-full py-4 rounded-2xl text-white font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-xl active:scale-95 disabled:opacity-50 disabled:active:scale-100 ${btn.color}`}
+        >
+          {isUpdating ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <>
+              {btn.icon}
+              {btn.label}
+            </>
+          )}
+        </button>
+      )}
     </motion.div>
   );
 }

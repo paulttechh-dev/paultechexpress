@@ -1,11 +1,11 @@
 export type UserRole = 'client' | 'motoboy' | 'admin';
 
 export interface UserProfile {
-  uid: string;
+  id: string;
   email: string;
   name: string;
   role: UserRole;
-  createdAt?: any;
+  created_at?: string;
 }
 
 export type OrderStatus = 
@@ -19,13 +19,24 @@ export type OrderStatus =
 
 export interface Order {
   id: string;
-  clientId: string;
-  clientName: string;
-  motoboyId?: string;
-  motoboyName?: string;
+  client_id: string;
+  client_name: string;
+  motoboy_id?: string;
+  motoboy_name?: string;
   address: string;
   problem: string;
   status: OrderStatus;
-  createdAt: any;
-  updatedAt?: any;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  image_url?: string;
+  category?: string;
+  stock?: number;
+  created_at: string;
 }

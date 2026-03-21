@@ -26,6 +26,11 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
   }
 
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
+    // Special case for admin email
+    if (user.email === 'paulttechh@gmail.com' && allowedRoles.includes('admin')) {
+      return <>{children}</>;
+    }
+
     // Redirect based on actual role if they try to access unauthorized area
     if (profile.role === 'admin') return <Navigate to="/admin" replace />;
     if (profile.role === 'motoboy') return <Navigate to="/motoboy" replace />;
