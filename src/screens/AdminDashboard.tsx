@@ -73,48 +73,30 @@ export function AdminDashboard() {
     try {
       console.log("[DEBUG] Admin: Buscando perfis de motoboy...");
       
-      // Tentativa 1: Busca direta com filtro
-      const { data: motoboysData, error: motoboysError } = await supabase
+      // Busca todos os perfis para garantir que nada seja filtrado erroneamente pelo RLS
+      const { data: allProfiles, error: allProfilesError } = await supabase
         .from('profiles')
-        .select('*')
-        .eq('role', 'motoboy');
+        .select('*');
 
-      if (motoboysError) {
-        console.error("ERRO ao buscar motoboys (filtro direto):", motoboysError);
-        
-        // Tentativa 2: Busca ampla (sem filtro) para diagnosticar RLS
-        const { data: allProfiles, error: allProfilesError } = await supabase
-          .from('profiles')
-          .select('*');
-          
-        if (allProfilesError) {
-          console.error("ERRO fatal ao buscar perfis:", allProfilesError);
-          if (allProfilesError.message.includes('permission denied')) {
-            alert("BLOQUEIO DE BANCO: O Supabase está impedindo você de ver a lista. Por favor, execute o script SQL 'NUCLEAR' que enviei no chat.");
-          }
-        } else if (allProfiles) {
-          console.log("[DEBUG] Todos os perfis encontrados:", allProfiles.length);
-          const filtered = allProfiles.filter(p => p.role === 'motoboy');
-          console.log("[DEBUG] Motoboys filtrados manualmente:", filtered.length);
-          setMotoboys(filtered as UserProfile[]);
+      if (allProfilesError) {
+        console.error("ERRO ao buscar perfis:", allProfilesError);
+        if (allProfilesError.message.includes('permission denied')) {
+          console.error("DICA: Execute o script SQL de permissões (is_admin).");
         }
-      } else if (motoboysData) {
-        console.log(`[DEBUG] Admin: ${motoboysData.length} motoboys carregados (filtro direto).`);
+      } 
+      
+      if (allProfiles) {
+        console.log(`[DEBUG] Total de perfis encontrados: ${allProfiles.length}`);
+        const filtered = allProfiles.filter(p => p.role === 'motoboy');
+        console.log(`[DEBUG] Motoboys após filtro local: ${filtered.length}`);
         
-        // Se o filtro direto retornou 0, mas sabemos que cadastramos, 
-        // tentamos a busca ampla como fallback automático
-        if (motoboysData.length === 0) {
-          const { data: all } = await supabase.from('profiles').select('*');
-          if (all && all.length > 0) {
-            const filtered = all.filter(p => p.role === 'motoboy');
-            console.log("[DEBUG] Fallback: Motoboys filtrados manualmente de todos os perfis:", filtered.length);
-            setMotoboys(filtered as UserProfile[]);
-          } else {
-            setMotoboys([]);
-          }
-        } else {
-          setMotoboys(motoboysData as UserProfile[]);
+        // Se não encontrou nenhum motoboy mas existem perfis, vamos logar os cargos existentes
+        if (filtered.length === 0 && allProfiles.length > 0) {
+          const roles = [...new Set(allProfiles.map(p => p.role))];
+          console.log("[DEBUG] Cargos encontrados no banco:", roles);
         }
+
+        setMotoboys(filtered as UserProfile[]);
       }
     } catch (e) {
       console.error("Erro inesperado ao buscar motoboys:", e);
