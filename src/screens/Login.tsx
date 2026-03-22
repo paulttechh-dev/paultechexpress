@@ -206,11 +206,17 @@ export function Login() {
                   role === 'motoboy'
                     ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/20'
                     : 'bg-slate-950 border-white/10 text-slate-500 hover:border-white/20'
-                }`}
+                } ${mode === 'register' ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                disabled={mode === 'register'}
               >
                 MOTOBOY
               </button>
             </div>
+            {mode === 'register' && (
+              <p className="text-[10px] text-slate-500 mt-2 font-medium">
+                Motoboys: O cadastro é realizado exclusivamente pela loja.
+              </p>
+            )}
           </div>
         </div>
 

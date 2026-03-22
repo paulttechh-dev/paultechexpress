@@ -283,6 +283,7 @@ export function AdminDashboard() {
         name: mbName,
         email: mbEmail.toLowerCase().trim(),
         role: 'motoboy' as const,
+        password: mbPassword, // Armazenamos a senha para visualização do admin
         created_at: new Date().toISOString()
       };
 
@@ -948,6 +949,24 @@ export function AdminDashboard() {
                         <div className="flex-1 min-w-0">
                           <h3 className="font-bold truncate">{mb.name}</h3>
                           <p className="text-xs text-slate-500 truncate">{mb.email}</p>
+                          {mb.password && (
+                            <div className="mt-2 flex items-center gap-2 p-2 rounded-lg bg-slate-950/50 border border-white/5">
+                              <Lock className="w-3 h-3 text-slate-500" />
+                              <span className="text-[10px] font-mono text-blue-400 select-all">{mb.password}</span>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(mb.password || '');
+                                  alert('Senha copiada!');
+                                }}
+                                className="ml-auto p-1 hover:bg-white/5 rounded text-slate-500"
+                                title="Copiar Senha"
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                       

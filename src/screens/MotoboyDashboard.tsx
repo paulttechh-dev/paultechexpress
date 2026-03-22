@@ -178,12 +178,13 @@ export function MotoboyDashboard() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {activeMyOrders.map((order) => (
-                  <OrderCard 
-                    key={order.id}
-                    order={order} 
-                    onUpdate={() => updateStatus(order)} 
-                    isUpdating={updatingId === order.id}
-                  />
+                  <div key={order.id}>
+                    <OrderCard 
+                      order={order} 
+                      onUpdate={() => updateStatus(order)} 
+                      isUpdating={updatingId === order.id}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -205,12 +206,13 @@ export function MotoboyDashboard() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {availableOrders.map((order) => (
-                  <OrderCard 
-                    key={order.id}
-                    order={order} 
-                    onUpdate={() => updateStatus(order)} 
-                    isUpdating={updatingId === order.id}
-                  />
+                  <div key={order.id}>
+                    <OrderCard 
+                      order={order} 
+                      onUpdate={() => updateStatus(order)} 
+                      isUpdating={updatingId === order.id}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -229,12 +231,13 @@ export function MotoboyDashboard() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {historyOrders.map((order) => (
-                <OrderCard 
-                  key={order.id}
-                  order={order} 
-                  onUpdate={() => {}} 
-                  isUpdating={false}
-                />
+                <div key={order.id}>
+                  <OrderCard 
+                    order={order} 
+                    onUpdate={() => {}} 
+                    isUpdating={false}
+                  />
+                </div>
               ))}
             </div>
           )}
